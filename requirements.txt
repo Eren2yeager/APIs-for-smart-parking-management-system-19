@@ -3,9 +3,13 @@ uvicorn
 websockets
 python-multipart
 ultralytics
-easyocr
+paddleocr
+paddlepaddle
 opencv-python
 numpy
 pillow
 python-dotenv
 pydantic
+requests
+huggingface-hub
+roboflow
