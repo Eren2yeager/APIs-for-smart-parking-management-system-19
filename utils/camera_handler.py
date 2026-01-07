@@ -24,6 +24,8 @@ class CameraHandler:
         
         self.source = source
         self.cap = None
+
+    
     
     def start(self):
         """Start camera capture"""
@@ -42,6 +44,10 @@ class CameraHandler:
             return None
         return frame
     
+    def frame_to_bytes(self, frame):
+    # Convert numpy array to JPEG bytes
+        pass
+     
     def release(self):
         """Release camera resources"""
         if self.cap is not None:

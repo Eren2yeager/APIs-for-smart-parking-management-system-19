@@ -9,11 +9,12 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        print(f"Client connected. Total connections: {len(self.active_connections)}")
+        # Logging moved to endpoint handlers for better context
     
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        print(f"Client disconnected. Total connections: {len(self.active_connections)}")
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        # Logging moved to endpoint handlers for better context
     
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
@@ -22,3 +23,8 @@ class ConnectionManager:
         """Broadcast message to all connected clients"""
         for connection in self.active_connections:
             await connection.send_text(message)
+    
+    def get_connection_count(self):
+        """Get total number of active connections"""
+        return len(self.active_connections)
+
