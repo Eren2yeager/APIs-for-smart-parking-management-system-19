@@ -11,9 +11,7 @@ ENV/
 # Environment variables
 .env
 
-# AI Models (downloaded by ultralytics)
-*.pt
-yolov8*.pt
+
 
 # IDE
 .vscode/
