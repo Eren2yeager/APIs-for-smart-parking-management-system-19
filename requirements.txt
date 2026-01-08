@@ -2,7 +2,6 @@ fastapi
 uvicorn
 websockets
 python-multipart
-ultralytics
 paddleocr
 paddlepaddle
 opencv-python
@@ -11,5 +10,4 @@ pillow
 python-dotenv
 pydantic
 requests
-huggingface-hub
 roboflow

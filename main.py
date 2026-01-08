@@ -6,7 +6,6 @@ load_dotenv()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from websocket.connection_manager import ConnectionManager
-from models.vehicle_detector import VehicleDetector
 from models.license_plate import PlateRecognitionPipeline
 from models.license_plate.stream_processor import PlateStreamProcessor
 from models.parking_space_detector import ParkingSlotDetector
@@ -28,16 +27,8 @@ app.add_middleware(
 
 # Initialize managers (lazy loading to avoid double init with reload=True)
 manager = ConnectionManager()
-vehicle_detector = None
 plate_pipeline = None
 parking_detector = None
-
-
-def get_vehicle_detector():
-    global vehicle_detector
-    if vehicle_detector is None:
-        vehicle_detector = VehicleDetector()
-    return vehicle_detector
 
 
 def get_plate_pipeline():
@@ -63,15 +54,6 @@ async def root():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "service": "smart-parking-backend"}
-
-
-@app.post("/api/detect-vehicle")
-async def detect_vehicle(file: UploadFile = File(...)):
-    """Detect vehicles in uploaded image"""
-    contents = await file.read()
-    detector = get_vehicle_detector()
-    result = detector.detect(contents)
-    return result
 
 
 @app.post("/api/recognize-plate")
@@ -105,6 +87,44 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             await manager.send_personal_message(f"Message received: {data}", websocket)
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+
+@app.websocket("/ws/webrtc-signaling")
+async def webrtc_signaling_endpoint(websocket: WebSocket):
+    """
+    WebRTC signaling server for camera streaming
+    Handles offer/answer/ICE candidate exchange between camera and backend
+    """
+    await manager.connect(websocket)
+    client_id = id(websocket)
+    
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "clientId": client_id,
+            "message": "WebRTC signaling server ready"
+        })
+        
+        print(f"✓ WebRTC client connected: {client_id}")
+        
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            msg_type = message.get("type")
+            
+            print(f"📡 Signaling [{client_id}]: {msg_type}")
+            
+            # Broadcast signaling messages to all other clients
+            for connection in manager.active_connections:
+                if connection != websocket:
+                    await connection.send_text(data)
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        print(f"✗ WebRTC client disconnected: {client_id}")
+    except Exception as e:
+        print(f"✗ WebRTC signaling error: {str(e)}")
         manager.disconnect(websocket)
 
 
@@ -331,21 +351,35 @@ async def lot_monitor_endpoint(websocket: WebSocket):
 
 
 if __name__ == "__main__":
+    # Set memory-efficient environment variables
+    os.environ['OMP_NUM_THREADS'] = '1'  # Reduce OpenCV memory usage
+    os.environ['MALLOC_TRIM_THRESHOLD_'] = '100000'  # Aggressive memory release
+    
     print("=" * 60)
     print("🚗 Smart Parking Management System")
     print("=" * 60)
     print("\n📦 AI Models (lazy loading):")
-    print("  • YOLOv8 - Vehicle Detection")
-    print("  • YOLOv8 - License Plate Detection")
-    print("  • PaddleOCR - Text Recognition")
-    print("  • Roboflow - Parking Slot Detection")
+    print("  • Roboflow API - License Plate Detection (cloud)")
+    print("  • PaddleOCR - Text Recognition (local)")
+    print("  • Roboflow API - Parking Slot Detection (cloud)")
+    print("\n🌐 API Endpoints:")
+    print("  • POST /api/recognize-plate - License Plate Recognition")
+    print("  • POST /api/detect-parking-slots - Parking Slot Detection")
     print("\n🌐 WebSocket Endpoints:")
+    print("  • /ws/webrtc-signaling - WebRTC Signaling Server")
     print("  • /ws/gate-monitor - License Plate Recognition")
     print("  • /ws/lot-monitor - Parking Capacity Monitoring")
+    print("\n📺 WebRTC Remote Streaming:")
+    print("  • Camera: http://YOUR_IP:3000/camera")
+    print("  • Backend: http://localhost:3000/test-backend")
     print("\n⚙️  Configuration:")
     print(f"  • Gate frame skip: {os.getenv('GATE_FRAME_SKIP', '1')}")
     print(f"  • Lot frame skip: {os.getenv('LOT_FRAME_SKIP', '1')}")
     print(f"  • Capacity alert: {int(float(os.getenv('LOT_CAPACITY_ALERT', '0.9'))*100)}%")
+    print("\n💾 Memory Optimizations:")
+    print("  • Roboflow API (no local YOLO models)")
+    print("  • Image resizing (max 1280px)")
+    print("  • Aggressive garbage collection")
     print("=" * 60)
     print()
     
@@ -353,3 +387,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     
     uvicorn.run("main:app", host=host, port=port, reload=False)
+
