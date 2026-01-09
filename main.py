@@ -255,13 +255,11 @@ async def lot_monitor_endpoint(websocket: WebSocket):
             "status": "connected",
             "message": "Lot monitor ready",
             "config": {
-                "frame_skip": processor.skip_frames,
-                "capacity_threshold": processor.capacity_threshold,
-                "max_capacity": processor.max_capacity
+                "frame_skip": processor.skip_frames
             }
         })
         
-        print(f"✓ Lot Monitor connected | Frame skip: {processor.skip_frames} | Alert threshold: {int(processor.capacity_threshold*100)}%")
+        print(f"✓ Lot Monitor connected | Frame skip: {processor.skip_frames}")
         
         while True:
             # Receive frame data
@@ -326,11 +324,9 @@ async def lot_monitor_endpoint(websocket: WebSocket):
                 total = result.get('total_slots', 0)
                 occupied = result.get('occupied', 0)
                 occupancy = result.get('occupancy_rate', 0)
-                alert = result.get('alert', False)
                 processing_time = result.get('processing_time_ms', 0)
                 
-                alert_icon = "⚠️" if alert else "✓"
-                print(f"{alert_icon} Parking: {occupied}/{total} slots ({int(occupancy*100)}%) | {processing_time}ms")
+                print(f"✓ Parking: {occupied}/{total} slots ({int(occupancy*100)}%) | {processing_time}ms")
                 
                 await websocket.send_json(result)
     
@@ -375,7 +371,6 @@ if __name__ == "__main__":
     print("\n⚙️  Configuration:")
     print(f"  • Gate frame skip: {os.getenv('GATE_FRAME_SKIP', '1')}")
     print(f"  • Lot frame skip: {os.getenv('LOT_FRAME_SKIP', '1')}")
-    print(f"  • Capacity alert: {int(float(os.getenv('LOT_CAPACITY_ALERT', '0.9'))*100)}%")
     print("\n💾 Memory Optimizations:")
     print("  • Roboflow API (no local YOLO models)")
     print("  • Image resizing (max 1280px)")

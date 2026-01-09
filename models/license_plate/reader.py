@@ -6,8 +6,6 @@ import warnings
 # Load environment variables FIRST
 load_dotenv()
 
-# Set this BEFORE importing PaddleOCR
-os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
 # Suppress the connectivity check message by redirecting stderr temporarily
 import io
@@ -37,7 +35,7 @@ class PlateReader:
         sys.stderr = io.StringIO()
         
         try:
-            self.reader = PaddleOCR(lang='en')
+            self.reader = PaddleOCR(lang='en' , use_angle_cls=False)
         finally:
             sys.stderr = _stderr
         
@@ -91,7 +89,8 @@ class PlateReader:
                         "raw": combined_raw,
                         "conf": avg_conf
                     }
-            
+
+
             return {
                 "text": best["text"],
                 "raw_text": best["raw"],

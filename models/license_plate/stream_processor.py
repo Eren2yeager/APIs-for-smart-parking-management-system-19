@@ -5,6 +5,7 @@ Handles frame skipping, deduplication, and session state management
 
 import time
 import os
+import gc
 from dotenv import load_dotenv
 from .pipeline import PlateRecognitionPipeline
 
@@ -20,6 +21,16 @@ class PlateStreamProcessor:
     - Session state management
     """
     
+    # Shared pipeline instance across all connections (saves memory)
+    _shared_pipeline = None
+    
+    @classmethod
+    def get_pipeline(cls):
+        """Get or create shared pipeline instance"""
+        if cls._shared_pipeline is None:
+            cls._shared_pipeline = PlateRecognitionPipeline()
+        return cls._shared_pipeline
+    
     def __init__(self, skip_frames=None, dedup_window=None):
         """
         Initialize stream processor
@@ -28,7 +39,7 @@ class PlateStreamProcessor:
             skip_frames: Process every Nth frame (default from env or 5)
             dedup_window: Ignore duplicate plates for N seconds (default from env or 10)
         """
-        self.pipeline = PlateRecognitionPipeline()
+        self.pipeline = self.get_pipeline()  # Use shared instance
         
         # Configuration
         self.skip_frames = skip_frames or int(os.getenv("GATE_FRAME_SKIP", "5"))
@@ -38,6 +49,7 @@ class PlateStreamProcessor:
         self.frame_count = 0
         self.processed_count = 0
         self.seen_plates = {}  # {plate_number: last_seen_timestamp}
+        self.max_tracked_plates = 100  # Limit memory usage
         
         # Removed verbose initialization log
     
@@ -79,6 +91,12 @@ class PlateStreamProcessor:
         
         for plate_number in plates_to_remove:
             del self.seen_plates[plate_number]
+        
+        # Hard limit: Keep only most recent plates if too many
+        if len(self.seen_plates) > self.max_tracked_plates:
+            # Sort by timestamp and keep only recent ones
+            sorted_plates = sorted(self.seen_plates.items(), key=lambda x: x[1], reverse=True)
+            self.seen_plates = dict(sorted_plates[:self.max_tracked_plates])
     
     def process_frame(self, frame_bytes):
         """
@@ -95,12 +113,18 @@ class PlateStreamProcessor:
         
         # Frame skipping
         if not self.should_process_frame():
+            # Delete frame immediately if skipped
+            del frame_bytes
             return None
         
         # Process with pipeline
         result = self.pipeline.process(frame_bytes)
         
+        # Delete frame_bytes immediately after processing
+        del frame_bytes
+        
         if not result.get("success"):
+            gc.collect()  # Clean up on error
             return {
                 "success": False,
                 "error": result.get("error", "Unknown error"),
@@ -123,9 +147,10 @@ class PlateStreamProcessor:
                 "is_new": is_new
             })
         
-        # Cleanup old entries periodically
-        if self.frame_count % 100 == 0:
+        # Cleanup old entries more frequently
+        if self.frame_count % 50 == 0:  # Every 50 frames instead of 100
             self.cleanup_old_plates()
+            gc.collect()  # Force garbage collection
         
         self.processed_count += 1
         processing_time = int((time.time() - start_time) * 1000)
@@ -147,6 +172,7 @@ class PlateStreamProcessor:
         self.frame_count = 0
         self.processed_count = 0
         self.seen_plates.clear()
+        gc.collect()  # Clean up memory
         # State reset (silent)
     
     def get_stats(self):
