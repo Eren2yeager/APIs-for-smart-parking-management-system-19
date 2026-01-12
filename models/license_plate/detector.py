@@ -5,6 +5,8 @@ from io import BytesIO
 from PIL import Image
 import os
 from dotenv import load_dotenv
+import tempfile
+import time
 
 load_dotenv()
 
@@ -29,30 +31,45 @@ class LicensePlateDetector:
             
             self.overlap = int(os.getenv("PLATE_DETECTION_OVERLAP", "30"))
             
+            # Performance tracking
+            self.api_call_times = []
+            self.max_tracked_times = 20
+            
             print("✓ Using Roboflow API for license plate detection")
         except Exception as e:
             print(f"✗ Failed to initialize Roboflow: {str(e)}")
             raise
     
     def detect_plates(self, image_bytes):
-        """Detect license plates in image and return bounding boxes using Roboflow API"""
+        """Detect license plates in image and return bounding boxes using Roboflow API (optimized)"""
+        api_start = time.time()
+        temp_fd = None
+        temp_path = None
+        
         try:
-            # Convert bytes to image and resize to save memory
+            # Convert bytes to image and resize aggressively for faster API calls
             image = Image.open(BytesIO(image_bytes))
             
-            # Resize image if too large (saves memory)
-            max_dimension = 1280
+            # More aggressive resizing for faster API calls (640px is sufficient for plate detection)
+            max_dimension = 640  # Reduced from 1280
+            scale_factor = 1.0
             if max(image.size) > max_dimension:
-                scale = max_dimension / max(image.size)
-                new_size = (int(image.width * scale), int(image.height * scale))
+                scale_factor = max_dimension / max(image.size)
+                new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
                 image = image.resize(new_size, Image.LANCZOS)
-            
-            # Save to temporary file (Roboflow needs file path)
-            temp_path = "temp_plate_frame.jpg"
-            image.save(temp_path)
             
             # Get original dimensions for response
             image_shape = (image.height, image.width, 3)
+            
+            # Use temporary file with context manager for automatic cleanup
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix='plate_')
+            
+            # Save with lower quality for faster I/O (quality=75 is good enough for detection)
+            image.save(temp_path, quality=75, optimize=False)
+            
+            # Close file descriptor immediately
+            os.close(temp_fd)
+            temp_fd = None
             
             # Run detection via Roboflow API
             result = self.model.predict(
@@ -61,9 +78,11 @@ class LicensePlateDetector:
                 overlap=self.overlap
             ).json()
             
-            # Clean up temp file immediately
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            # Track API call time
+            api_time = time.time() - api_start
+            self.api_call_times.append(api_time)
+            if len(self.api_call_times) > self.max_tracked_times:
+                self.api_call_times.pop(0)
             
             # Parse results
             plates = []
@@ -71,10 +90,11 @@ class LicensePlateDetector:
                 confidence = prediction['confidence']
                 
                 # Extract bounding box (convert from center to corners)
-                x = int(prediction['x'])
-                y = int(prediction['y'])
-                width = int(prediction['width'])
-                height = int(prediction['height'])
+                # Scale back to original coordinates
+                x = int(prediction['x'] / scale_factor)
+                y = int(prediction['y'] / scale_factor)
+                width = int(prediction['width'] / scale_factor)
+                height = int(prediction['height'] / scale_factor)
                 
                 x1 = x - width // 2
                 y1 = y - height // 2
@@ -95,15 +115,34 @@ class LicensePlateDetector:
                 "success": True,
                 "plate_count": len(plates),
                 "plates": plates,
-                "image_shape": image_shape
+                "image_shape": image_shape,
+                "api_time_ms": int(api_time * 1000)
             }
         
         except Exception as e:
-
             return {
                 "success": False,
                 "error": str(e)
             }
+        
+        finally:
+            # Ensure cleanup even on error
+            if temp_fd is not None:
+                try:
+                    os.close(temp_fd)
+                except:
+                    pass
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+    
+    def get_avg_api_time(self):
+        """Get average API call time in milliseconds"""
+        if not self.api_call_times:
+            return 0
+        return int(sum(self.api_call_times) / len(self.api_call_times) * 1000)
     
     def crop_plates(self, image_bytes, bboxes):
         """Crop license plate regions from image (memory optimized)"""

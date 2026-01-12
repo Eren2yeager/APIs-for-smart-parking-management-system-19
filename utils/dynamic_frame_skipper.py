@@ -17,14 +17,14 @@ class DynamicFrameSkipper:
     - Maintains a target processing time per frame
     """
     
-    def __init__(self, initial_skip=5, min_skip=1, max_skip=30, target_fps=10):
+    def __init__(self, initial_skip=5, min_skip=1, max_skip=50, target_fps=10):
         """
         Initialize dynamic frame skipper
         
         Args:
             initial_skip: Starting frame skip value
             min_skip: Minimum skip value (1 = process every frame)
-            max_skip: Maximum skip value
+            max_skip: Maximum skip value (increased to 50 for slow processing)
             target_fps: Target processing rate (frames per second)
         """
         self.skip_frames = initial_skip
@@ -36,7 +36,7 @@ class DynamicFrameSkipper:
         self.processing_times = deque(maxlen=10)  # Last 10 processing times
         self.frame_count = 0
         self.last_adjustment_frame = 0
-        self.adjustment_interval = 20  # Adjust every N frames
+        self.adjustment_interval = 10  # Adjust every 10 frames (more responsive)
     
     def should_process_frame(self):
         """Determine if current frame should be processed"""
